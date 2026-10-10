@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>앨리스의 정원 파티 - 틀린 그림 찾기</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;padding:16px;
+  font-family:Arial,"Malgun Gothic",sans-serif;
+  background:#fff4df;color:#493321;text-align:center
+}
+h1{font-size:clamp(23px,4vw,36px)}
+p{line-height:1.6}
+.info{
+  display:flex;justify-content:center;
+  gap:10px;flex-wrap:wrap;margin:18px
+}
+.info span{
+  background:white;border-radius:20px;
+  padding:10px 14px;font-weight:bold
+}
+.boards{
+  max-width:1100px;margin:auto;
+  display:grid;grid-template-columns:1fr 1fr;gap:14px
+}
+.panel{
+  background:#fffaf0;border:3px solid #c2a475;
+  border-radius:14px;padding:8px
+}
+.panel h2{margin:8px}
+.scene{position:relative;line-height:0}
+.scene img{width:100%;height:auto;display:block}
+.target{
+  position:absolute;border:0;border-radius:50%;
+  background:transparent;cursor:pointer;
+  transform:translate(-50%,-50%);
+  padding:0
+}
+.target:focus-visible{outline:3px solid #e6a927}
+.found{
+  border:4px solid #35a85a;
+  background:#35a85a35
+}
+button{
+  border:0;border-radius:10px;padding:12px 18px;
+  margin:6px;font-size:16px;font-weight:bold;
+  cursor:pointer;background:#e9cb8a;color:#493321
+}
+#message{font-weight:bold;min-height:28px}
+#win{
+  display:none;position:fixed;inset:0;
+  background:#0009;align-items:center;justify-content:center;
+  padding:20px
+}
+.dialog{
+  background:#fff8e9;border-radius:20px;
+  padding:28px;max-width:400px;width:100%
+}
+.answer{font-size:54px;font-weight:bold;color:#b34236}
+@media(max-width:650px){
+  .boards{grid-template-columns:1fr}
+  body{padding:8px}
+}
+</style>
+</head>
+<body>
+
+<h1>🔎 앨리스의 정원 파티</h1>
+<p>두 그림을 비교해서 다른 곳 5개를 찾아보세요!</p>
+
+<div class="info">
+  <span>🔍 정답 <b id="score">0</b>/5</span>
+  <span>❤️ 목숨 <b id="lives">3</b></span>
+  <span>💡 힌트 <b id="hints">3</b></span>
+</div>
+
+<div class="boards">
+  <section class="panel">
+    <h2>그림 A</h2>
+    <div class="scene" id="sceneA">
+      <img src="scene-a.png" alt="틀린 그림 찾기 그림 A">
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>그림 B</h2>
+    <div class="scene" id="sceneB">
+      <img src="scene-b.png" alt="틀린 그림 찾기 그림 B">
+    </div>
+  </section>
+</div>
+
+<div>
+  <button id="hintBtn">💡 힌트 보기</button>
+  <button id="resetBtn">🔄 다시 시작</button>
+</div>
+<p id="message" aria-live="polite">그림에서 다른 부분을 클릭하세요!</p>
+
+<div id="win">
+  <div class="dialog">
+    <h2 id="resultTitle">🎉 모두 찾았어요!</h2>
+    <p id="resultText">다음 문제의 정답은</p>
+    <div class="answer" id="answer">2024</div>
+    <button id="closeBtn">확인</button>
+    <button id="againBtn">다시 하기</button>
+  </div>
+</div>
+
+<script>
+/*
+  정답 위치는 그림 안의 백분율입니다.
+  x, y: 중심 위치
+  w, h: 클릭 가능한 영역의 너비와 높이
+  그림의 실제 크기에 맞춰 조절하세요.
+*/
+const differences = [
+  {
+    name:"고양이 얼굴",
+    x:77, y:12, w:13, h:16,
+    hint:"나무 위 고양이 얼굴을 살펴보세요."
+  },
+  {
+    name:"토끼 모자 스티커",
+    x:75, y:34, w:13, h:17,
+    hint:"토끼 모자 앞면의 숫자와 알파벳을 비교하세요."
+  },
+  {
+    name:"카드 무늬",
+    x:51, y:78, w:13, h:17,
+    hint:"탁자 아래쪽 카드의 무늬를 확인하세요."
+  },
+  {
+    name:"왼쪽 찻잔 속 쥐",
+    x:24, y:83, w:20, h:23,
+    hint:"왼쪽 아래 찻잔 속 쥐의 얼굴과 몸을 살펴보세요."
+  },
+  {
+    name:"오른쪽 찻잔 속 쥐",
+    x:73, y:81, w:20, h:23,
+    hint:"오른쪽 아래 찻잔 속 쥐의 얼굴과 몸을 살펴보세요."
+  }
+];
+
+let found = new Set();
+let lives = 3;
+let hints = 3;
+let ended = false;
+
+const scenes = [
+  document.getElementById("sceneA"),
+  document.getElementById("sceneB")
+];
+
+const $ = id => document.getElementById(id);
+
+function update(){
+  $("score").textContent = found.size;
+  $("lives").textContent = lives;
+  $("hints").textContent = hints;
+  $("hintBtn").disabled = hints <= 0 || ended;
+}
+
+function clearMarkers(){
+  document.querySelectorAll(".target").forEach(el=>{
+    el.classList.remove("found");
+    el.style.outline = "";
+  });
+}
+
+function drawTargets(){
+  scenes.forEach((scene, sceneIndex)=>{
+    scene.querySelectorAll(".target").forEach(el=>el.remove());
+
+    differences.forEach((d,i)=>{
+      const button = document.createElement("button");
+      button.className = "target";
+      button.type = "button";
+      button.setAttribute("aria-label",d.name);
+      button.style.left = d.x + "%";
+      button.style.top = d.y + "%";
+      button.style.width = d.w + "%";
+      button.style.height = d.h + "%";
+
+      if(found.has(i)) button.classList.add("found");
+
+      button.addEventListener("click",()=>{
+        if(ended || found.has(i)) return;
+
+        found.add(i);
+        $("message").textContent =
+          "정답! " + d.name + "을(를) 찾았어요!";
+        $("message").style.color = "#287a40";
+
+        drawTargets();
+        update();
+
+        if(found.size === 5) finish(true);
+      });
+
+      scene.appendChild(button);
+    });
+  });
+}
+
+function finish(success){
+  ended = true;
+  $("win").style.display = "flex";
+
+  $("resultTitle").textContent =
+    success ? "🎉 모두 찾았어요!" : "다시 도전해 보세요!";
+
+  $("resultText").textContent =
+    success
+      ? "다음 문제의 정답은"
+      : "목숨을 모두 사용했어요.";
+
+  $("answer").style.display = success ? "block" : "none";
+}
+
+$("hintBtn").addEventListener("click",()=>{
+  if(ended || hints <= 0) return;
+
+  const index = differences.findIndex((d,i)=>!found.has(i));
+  if(index < 0) return;
+
+  hints--;
+  const d = differences[index];
+
+  $("message").textContent = "💡 힌트: " + d.hint;
+  $("message").style.color = "#946a16";
+
+  // 힌트는 정답 위치를 잠시 강조합니다.
+  scenes.forEach(scene=>{
+    const marker = scene.querySelectorAll(".target")[index];
+    if(marker){
+      marker.style.outline = "4px dashed #e6a927";
+    }
+  });
+
+  update();
+});
+
+$("resetBtn").addEventListener("click",reset);
+$("againBtn").addEventListener("click",reset);
+$("closeBtn").addEventListener("click",()=>{
+  $("win").style.display = "none";
+});
+
+function reset(){
+  found = new Set();
+  lives = 3;
+  hints = 3;
+  ended = false;
+
+  $("win").style.display = "none";
+  $("message").textContent = "그림에서 다른 부분을 클릭하세요!";
+  $("message").style.color = "";
+
+  drawTargets();
+  update();
+}
+
+update();
+drawTargets();
+</script>
+</body>
+</html>
